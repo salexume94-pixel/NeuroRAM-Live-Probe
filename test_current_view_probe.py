@@ -1,5 +1,5 @@
 import unittest
-from current_view_probe import PUBLIC_VIEW_URL, _ScriptReferences, diagnose_public_view
+from current_view_probe import PUBLIC_VIEW_URL, _ScriptReferences, diagnose_public_view, inspect_public_script
 
 class FakeResponse:
     status = 200
@@ -40,6 +40,22 @@ class PublicViewTests(unittest.TestCase):
         data = diagnose_public_view(fake_fetch)
         self.assertEqual(data["error"], "OSError")
         self.assertFalse(data["frame_received"])
+
+
+class PublicScriptTests(unittest.TestCase):
+    def test_rejects_unlinked_or_foreign_domains(self):
+        result = inspect_public_script("https://untrusted.example/client/assets/evil.js")
+        self.assertEqual(result["error"], "not_a_public_linked_viewer_asset")
+        self.assertFalse(result["frame_received"])
+
+    def test_public_script_diagnostic_is_not_biological_recording(self):
+        js = b'const stream = "https://livemeaservice.finalspark.com/socket.io/"; const connector = new WebSocket("wss://livenp.finalspark.com");'
+        result = inspect_public_script("https://livenp.finalspark.com/client/assets/main.js", lambda url, timeout: FakeResponse(js))
+        self.assertEqual(result["http_code"], 200)
+        self.assertIn("livemeaservice.finalspark.com", result["public_provider_hostnames"])
+        self.assertTrue(result["connection_hints"]["websocket"])
+        self.assertFalse(result["frame_received"])
+        self.assertFalse(result["biological_origin_verified"])
 
 if __name__ == "__main__":
     unittest.main()
