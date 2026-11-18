@@ -87,12 +87,20 @@ def inspect_public_script(script_url, fetch=urlopen):
             event_names = sorted(set(re.findall(
                 r"""\.(?:on|emit)\(\s*["']([A-Za-z_][A-Za-z0-9_:-]{0,60})["']""", code
             )))
+            terms = ("io(", ".on(", ".emit(", "WebSocket", "subscribe", "spike",
+                     "electrode", "stream", "signal", "channel", "socket.io")
+            contexts = {}
+            for term in terms:
+                pos = code.rfind(term)
+                if pos >= 0:
+                    contexts[term] = code[max(0, pos-80):pos + 110].replace("\\n", " ")[:190]
             result.update({
                 "http_code": response.status,
                 "bytes_read": len(raw),
                 "script_sha256": sha256(raw).hexdigest(),
                 "public_provider_hostnames": names[:25],
                 "public_frontend_event_names": event_names[:50],
+                "public_frontend_contexts": contexts,
                 "connection_hints": {hint: hint.lower() in code.lower() for hint in hints},
             })
     except Exception as exc:
