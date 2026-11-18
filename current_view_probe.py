@@ -85,7 +85,7 @@ def inspect_public_script(script_url, fetch=urlopen):
             hints = ("socket.io", "websocket", "eventsource", "livedata",
                      "meaid", "wss://", "ws://", "/api/", "/socket.io/")
             event_names = sorted(set(re.findall(
-                r"""\\.(?:on|emit)\\(\\s*["']([A-Za-z_][A-Za-z0-9_:-]{0,60})["']""", code
+                r"""\.(?:on|emit)\(\s*["']([A-Za-z_][A-Za-z0-9_:-]{0,60})["']""", code
             )))
             result.update({
                 "http_code": response.status,
