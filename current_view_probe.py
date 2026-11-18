@@ -54,3 +54,44 @@ def diagnose_public_view(fetch=urlopen):
         result["error"] = type(exc).__name__
         result["error_detail"] = str(exc)[:180]
     return result
+
+
+def inspect_public_script(script_url, fetch=urlopen):
+    """Inspect one script explicitly linked by the public viewer, without executing it.
+
+    Never downloads unlinked scripts, follows arbitrary script-provided URLs,
+    or uses protected endpoints. Results contain only public hostnames,
+    connection-library hints and source integrity metadata.
+    """
+    import re
+
+    p = urlparse(script_url)
+    result = {
+        "script_url": script_url,
+        "classification": "public_frontend_code_not_live_recording",
+        "frame_received": False,
+        "biological_origin_verified": False,
+    }
+    if p.scheme != "https" or p.hostname != "livenp.finalspark.com" or not p.path.startswith("/client/assets/"):
+        result["error"] = "not_a_public_linked_viewer_asset"
+        return result
+    try:
+        with fetch(script_url, timeout=12) as response:
+            raw = response.read(2000000)
+            code = raw.decode("utf-8", errors="replace")
+            names = sorted(set(re.findall(
+                r"(?i)(?:[a-z0-9-]+\.)+(?:finalspark\.com|alpvision\.com)", code
+            )))
+            hints = ("socket.io", "websocket", "eventsource", "livedata",
+                     "meaid", "wss://", "ws://", "/api/", "/socket.io/")
+            result.update({
+                "http_code": response.status,
+                "bytes_read": len(raw),
+                "script_sha256": sha256(raw).hexdigest(),
+                "public_provider_hostnames": names[:25],
+                "connection_hints": {hint: hint.lower() in code.lower() for hint in hints},
+            })
+    except Exception as exc:
+        result["error"] = type(exc).__name__
+        result["error_detail"] = str(exc)[:180]
+    return result
