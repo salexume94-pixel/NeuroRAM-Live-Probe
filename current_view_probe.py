@@ -108,3 +108,55 @@ def inspect_public_script(script_url, fetch=urlopen):
         result["error"] = type(exc).__name__
         result["error_detail"] = str(exc)[:180]
     return result
+
+
+def inspect_public_controller_metadata(fetch=urlopen):
+    """Read only the two metadata endpoints used by FinalSpark's public viewer.
+
+    Does not request recordings, credentials, or hardware control.
+    Controller identifiers are hashed before logging.
+    """
+    import json
+    origin = "https://livenp.finalspark.com"
+    report = {"origin": origin, "mode": "public_view_metadata_read_only",
+              "biological_signal_received": False, "results": {}}
+    for path in ("/controllers", "/sample"):
+        item = {}
+        try:
+            with fetch(origin + path, timeout=10) as response:
+                raw = response.read(1000000)
+                item["http_code"] = response.status
+                item["response_bytes"] = len(raw)
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    item["top_level_keys"] = sorted(str(key) for key in data.keys())[:20]
+                    if path == "/sample":
+                        item["numbersample"] = data.get("numbersample")
+                    else:
+                        controllers = data.get("controllers", [])
+                        item["controller_count"] = len(controllers) if isinstance(controllers, list) else None
+                        item["controllers"] = []
+                        if isinstance(controllers, list):
+                            for controller in controllers[:16]:
+                                if not isinstance(controller, dict):
+                                    continue
+                                layout = controller.get("electrode_layout") or []
+                                indices = sorted(set(
+                                    el.get("mea_index") for el in layout
+                                    if isinstance(el, dict) and isinstance(el.get("mea_index"), int)
+                                )) if isinstance(layout, list) else []
+                                item["controllers"].append({
+                                    "id_hash": sha256(str(controller.get("_id")).encode()).hexdigest()[:12],
+                                    "online": controller.get("online"),
+                                    "maintenance": controller.get("maintenance"),
+                                    "channels": controller.get("channels") if isinstance(controller.get("channels"), list) else None,
+                                    "layout_count": len(layout) if isinstance(layout, list) else None,
+                                    "mea_indices": indices[:8],
+                                })
+                else:
+                    item["error"] = "non_object_json"
+        except Exception as exc:
+            item["error"] = type(exc).__name__
+            item["detail"] = str(exc)[:180]
+        report["results"][path] = item
+    return report
