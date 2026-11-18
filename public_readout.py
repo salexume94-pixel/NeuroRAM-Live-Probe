@@ -61,10 +61,25 @@ def fetch_selection(fetch=urlopen):
     return choose_public_selection(records["/controllers"].get("controllers"), records["/sample"].get("numbersample"))
 
 async def subscribe_once():
-    result = {"mode": "public_view_read_only_start_subscription",
-              "public_endpoint": ORIGIN, "data_event_received": False,
-              "biological_origin_independently_verified": False,
-              "stimulation_commands_sent": 0}
+    """Collect up to 3 consecutive public signal frames and persist the source values.
+
+    The resulting gzip recording is ephemeral on Render's free filesystem.
+    No stimulation or private data endpoints are used.
+    """
+    import gzip
+    import math
+    import os
+    from datetime import datetime, timezone
+
+    path = "/tmp/neuroram_public_signal.json.gz"
+    result = {
+        "mode": "public_view_read_only_start_subscription",
+        "public_endpoint": ORIGIN,
+        "data_event_received": False,
+        "biological_origin_independently_verified": False,
+        "stimulation_commands_sent": 0,
+    }
+    captures = []
     try:
         payload, selection = fetch_selection()
         result["selection"] = selection
@@ -73,29 +88,43 @@ async def subscribe_once():
             return result
         import socketio
         client = socketio.AsyncClient(reconnection=False, request_timeout=6)
-        received = asyncio.Event()
+        done = asyncio.Event()
+        samples_per_channel = selection["numbersample"]
+        channel_count = len(payload["channel_index"])
+        expected = channel_count * samples_per_channel
 
         @client.on("data")
         async def got_data(data):
-            if received.is_set():
+            if len(captures) >= 3:
                 return
-            try:
-                if isinstance(data, (bytes, bytearray)):
-                    serialized = bytes(data)
-                else:
-                    serialized = json.dumps(data, separators=(",", ":"), sort_keys=True, default=str).encode()
-                result["frame"] = {
-                    "payload_type": type(data).__name__,
-                    "serialized_bytes": len(serialized),
-                    "payload_sha256": hashlib.sha256(serialized).hexdigest(),
-                    "top_level_keys": sorted(map(str, data.keys()))[:20] if isinstance(data, dict) else [],
-                    "top_level_length": len(data) if isinstance(data, (dict, list, tuple)) else None,
-                }
-                result["data_event_received"] = True
-            except Exception as exc:
-                result["frame_parse_error"] = type(exc).__name__
-            finally:
-                received.set()
+            if not isinstance(data, list) or len(data) != expected:
+                result["frame_validation_error"] = "wrong_type_or_sample_count"
+                return
+            if any(type(v) not in (int, float) or not math.isfinite(v) for v in data):
+                result["frame_validation_error"] = "nonfinite_or_nonnumeric_values"
+                return
+            serialized = json.dumps(data, separators=(",", ":"), allow_nan=False).encode()
+            digest = hashlib.sha256(serialized).hexdigest()
+            groups = [data[i * samples_per_channel:(i + 1) * samples_per_channel]
+                      for i in range(channel_count)]
+            summary = {
+                "received_utc": datetime.now(timezone.utc).isoformat(),
+                "payload_sha256": digest,
+                "sample_count": len(data),
+                "serialized_bytes": len(serialized),
+                "sample_min": round(min(data), 6),
+                "sample_max": round(max(data), 6),
+                "rms_source_units": round((sum(v * v for v in data) / len(data)) ** 0.5, 6),
+                "nonzero_samples": sum(v != 0 for v in data),
+                "channel_rms_source_units": [
+                    round((sum(v*v for v in group) / len(group)) ** 0.5, 6)
+                    for group in groups
+                ],
+            }
+            captures.append({"summary": summary, "values": data})
+            result["data_event_received"] = True
+            if len(captures) >= 3:
+                done.set()
 
         @client.on("maintenance")
         async def on_maintenance(data):
@@ -103,17 +132,41 @@ async def subscribe_once():
 
         try:
             await asyncio.wait_for(client.connect(ORIGIN, transports=["websocket"], wait_timeout=6), timeout=9)
-            # The only emitted event is the live viewer's published read-only
-            # subscription; it is NOT a stimulus or experimental command.
-            await client.emit("start", payload)
+            await client.emit("start", payload)  # Vendor public viewer's read-only event.
             try:
-                await asyncio.wait_for(received.wait(), timeout=12)
+                await asyncio.wait_for(done.wait(), timeout=10)
             except asyncio.TimeoutError:
                 pass
-            result["status"] = "data_event_received" if result["data_event_received"] else "subscribed_no_data_event"
         finally:
             if client.connected:
                 await client.disconnect()
+
+        result["frame_summaries"] = [frame["summary"] for frame in captures]
+        result["frame_count"] = len(captures)
+        result["distinct_frame_hashes"] = len(set(
+            frame["summary"]["payload_sha256"] for frame in captures))
+        if not captures:
+            result["status"] = "subscribed_no_valid_data_event"
+            return result
+        evidence = {
+            "source": "FinalSpark public live viewer read-only stream",
+            "source_origin": ORIGIN,
+            "biological_origin_independently_verified": False,
+            "controller_id_hash": selection["controller_id_hash"],
+            "mea_index": selection["mea_index"],
+            "channels": selection["channel_index"],
+            "samples_per_channel": samples_per_channel,
+            "stimulation_commands_sent": 0,
+            "frames": captures,
+        }
+        tmp_path = path + ".tmp"
+        with gzip.open(tmp_path, "wt", encoding="utf-8", compresslevel=6) as f:
+            json.dump(evidence, f, allow_nan=False, separators=(",", ":"))
+        os.replace(tmp_path, path)
+        result["recording_available"] = True
+        result["recording_relative_url"] = "/public-recording.json.gz"
+        result["recording_gzip_bytes"] = os.path.getsize(path)
+        result["status"] = "public_signal_frames_recorded"
     except Exception as exc:
         result["status"] = "public_subscription_failed"
         result["error"] = type(exc).__name__
