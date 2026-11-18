@@ -1,0 +1,24 @@
+name: Archive verified public NeuralStream sample
+on:
+  push:
+    paths:
+      - '.github/workflows/archive-public-live-signal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout independent verifier
+        uses: actions/checkout@v4
+      - name: Fetch and independently verify live signal
+        run: python archive_public_evidence.py
+      - name: Store original recording and evidence report
+        uses: actions/upload-artifact@v4
+        with:
+          name: neuroram-first-public-live-signal
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
