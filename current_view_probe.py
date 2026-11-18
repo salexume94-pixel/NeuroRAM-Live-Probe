@@ -93,7 +93,8 @@ def inspect_public_script(script_url, fetch=urlopen):
             for term in terms:
                 pos = code.rfind(term)
                 if pos >= 0:
-                    contexts[term] = code[max(0, pos-80):pos + 110].replace("\\n", " ")[:190]
+                    before, after = (1050, 380) if term == ".emit(" else (80, 110)
+                    contexts[term] = code[max(0, pos-before):pos + after].replace("\\n", " ")[:1500]
             result.update({
                 "http_code": response.status,
                 "bytes_read": len(raw),
