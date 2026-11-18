@@ -198,6 +198,25 @@ def do_probe():
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/public-recording.json.gz":
+            filepath = "/tmp/neuroram_public_signal.json.gz"
+            if not os.path.isfile(filepath):
+                self.send_error(404, "No public live recording captured yet")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Disposition", 'attachment; filename="neuroram_live_public_signal.json.gz"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(os.path.getsize(filepath)))
+            self.end_headers()
+            with open(filepath, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            return
         if self.path not in ("/", "/status", "/health"):
             self.send_error(404)
             return
