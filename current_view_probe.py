@@ -87,13 +87,13 @@ def inspect_public_script(script_url, fetch=urlopen):
             event_names = sorted(set(re.findall(
                 r"""\.(?:on|emit)\(\s*["']([A-Za-z_][A-Za-z0-9_:-]{0,60})["']""", code
             )))
-            terms = ("io(", ".on(", ".emit(", "$t(", "payload:", "WebSocket", "subscribe", "spike",
-                     "electrode", "stream", "signal", "channel", "socket.io")
+            terms = ("function rn(", "function nn(", "rn=", "nn=", "numbersample",
+                     "controllers", "$t(", ".emit(")
             contexts = {}
             for term in terms:
-                pos = code.rfind(term)
+                pos = code.find(term) if term.startswith("function ") else code.rfind(term)
                 if pos >= 0:
-                    before, after = (1050, 480) if term in (".emit(", "$t(", "payload:") else (80, 110)
+                    before, after = (180, 1000) if term.startswith("function ") or term in ("rn=", "nn=") else ((700, 420) if term in ("$t(", ".emit(") else (100, 220))
                     contexts[term] = code[max(0, pos-before):pos + after].replace("\\n", " ")[:1500]
             result.update({
                 "http_code": response.status,
