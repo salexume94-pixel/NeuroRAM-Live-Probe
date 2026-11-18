@@ -123,6 +123,11 @@ async def try_socket(host):
 
 def do_probe():
     print("NEURORAM_PROBE_BEGIN", utc(), flush=True)
+    from current_view_probe import diagnose_public_view
+    public_view = diagnose_public_view()
+    with LOCK:
+        RESULT["public_view"] = public_view
+    print("NEURORAM_PUBLIC_VIEW", json.dumps(public_view, sort_keys=True), flush=True)
     for host in HOSTS:
         record = {"endpoint": host, "http": check_http(host), "attempted_at_utc": utc()}
         try:
