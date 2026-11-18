@@ -159,6 +159,11 @@ def do_probe():
     with LOCK:
         RESULT["public_view"] = public_view
     print("NEURORAM_PUBLIC_VIEW", json.dumps(public_view, sort_keys=True), flush=True)
+    from current_view_probe import inspect_public_controller_metadata
+    controller_state = inspect_public_controller_metadata()
+    with LOCK:
+        RESULT["public_controller_state"] = controller_state
+    print("NEURORAM_PUBLIC_CONTROLLER_STATE", json.dumps(controller_state, sort_keys=True), flush=True)
     if public_view.get("same_origin_script_urls"):
         from current_view_probe import inspect_public_script
         public_script = inspect_public_script(public_view["same_origin_script_urls"][0])
