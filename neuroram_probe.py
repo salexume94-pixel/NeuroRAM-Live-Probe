@@ -175,6 +175,11 @@ def do_probe():
             with LOCK:
                 RESULT["public_view_socket"] = public_socket
             print("NEURORAM_PUBLIC_VIEW_SOCKET", json.dumps(public_socket, sort_keys=True), flush=True)
+    from public_readout import subscribe_once
+    public_signal = asyncio.run(subscribe_once())
+    with LOCK:
+        RESULT["public_signal"] = public_signal
+    print("NEURORAM_PUBLIC_SIGNAL", json.dumps(public_signal, sort_keys=True), flush=True)
     for host in HOSTS:
         record = {"endpoint": host, "http": check_http(host), "attempted_at_utc": utc()}
         try:
