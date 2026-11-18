@@ -121,6 +121,37 @@ async def try_socket(host):
             await s.disconnect()
 
 
+async def probe_public_view_socket():
+    """One public, unauthenticated Socket.IO handshake; no emissions or commands."""
+    url = "https://livenp.finalspark.com"
+    try:
+        import socketio
+    except ImportError:
+        return {"url": url, "status": "missing_dependency", "signal_verified": False}
+    client = socketio.AsyncClient(reconnection=False, request_timeout=6)
+    events = []
+
+    @client.on("*")
+    async def observe_event(event, *args):
+        # Only store event names; never log or retain unknown payloads.
+        if len(events) < 16:
+            events.append(str(event)[:64])
+
+    try:
+        await asyncio.wait_for(client.connect(url, transports=["websocket"], wait_timeout=6), timeout=9)
+        await client.sleep(3)
+        return {"url": url, "status": "public_socketio_handshake_completed",
+                "event_names": sorted(set(events)), "signal_verified": False,
+                "biological_origin_verified": False}
+    except Exception as exc:
+        return {"url": url, "status": "public_socketio_handshake_failed",
+                "error": type(exc).__name__, "detail": str(exc)[:180],
+                "signal_verified": False, "biological_origin_verified": False}
+    finally:
+        if client.connected:
+            await client.disconnect()
+
+
 def do_probe():
     print("NEURORAM_PROBE_BEGIN", utc(), flush=True)
     from current_view_probe import diagnose_public_view
@@ -134,6 +165,11 @@ def do_probe():
         with LOCK:
             RESULT["public_script"] = public_script
         print("NEURORAM_PUBLIC_SCRIPT", json.dumps(public_script, sort_keys=True), flush=True)
+        if public_script.get("connection_hints", {}).get("socket.io"):
+            public_socket = asyncio.run(probe_public_view_socket())
+            with LOCK:
+                RESULT["public_view_socket"] = public_socket
+            print("NEURORAM_PUBLIC_VIEW_SOCKET", json.dumps(public_socket, sort_keys=True), flush=True)
     for host in HOSTS:
         record = {"endpoint": host, "http": check_http(host), "attempted_at_utc": utc()}
         try:
