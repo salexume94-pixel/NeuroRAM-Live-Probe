@@ -128,6 +128,12 @@ def do_probe():
     with LOCK:
         RESULT["public_view"] = public_view
     print("NEURORAM_PUBLIC_VIEW", json.dumps(public_view, sort_keys=True), flush=True)
+    if public_view.get("same_origin_script_urls"):
+        from current_view_probe import inspect_public_script
+        public_script = inspect_public_script(public_view["same_origin_script_urls"][0])
+        with LOCK:
+            RESULT["public_script"] = public_script
+        print("NEURORAM_PUBLIC_SCRIPT", json.dumps(public_script, sort_keys=True), flush=True)
     for host in HOSTS:
         record = {"endpoint": host, "http": check_http(host), "attempted_at_utc": utc()}
         try:
