@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: neuroram-public-readonly-probe
+    runtime: python
+    plan: free
+    region: virginia
+    buildCommand: pip install -r requirements.txt
+    startCommand: python neuroram_probe.py
+    autoDeployTrigger: off
