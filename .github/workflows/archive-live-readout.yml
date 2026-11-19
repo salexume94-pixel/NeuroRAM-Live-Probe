@@ -1,0 +1,83 @@
+name: Preserve NeuroRAM public live readout
+on:
+  push:
+    paths:
+      - ".github/workflows/archive-live-readout.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preserve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Retrieve the already captured public readout
+        shell: bash
+        run: |
+          mkdir -p evidence
+          curl --fail --show-error --location --retry 4 --retry-delay 3 --max-time 100 \
+            "https://neuroram-live-probe.onrender.com/public-recording.json.gz" \
+            --output evidence/public-recording.json.gz
+          test "$(stat -c %s evidence/public-recording.json.gz)" -gt 1000
+          gzip -t evidence/public-recording.json.gz
+      - name: Validate and report the unmodified source capture
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import gzip, json, hashlib, math, pathlib, datetime
+          p = pathlib.Path("evidence/public-recording.json.gz")
+          with gzip.open(p, "rb") as f:
+              raw = f.read(3_000_001)
+          assert len(raw) <= 3_000_000, "Uncompressed data too large"
+          obj = json.loads(raw)
+          assert obj["source_origin"] == "https://livenp.finalspark.com"
+          assert obj["stimulation_commands_sent"] == 0
+          assert obj["biological_origin_independently_verified"] is False
+          channels = obj["channels"]
+          n = obj["samples_per_channel"]
+          frames = obj["frames"]
+          assert 1 <= len(channels) <= 32 and len(set(channels)) == len(channels)
+          assert type(n) is int and 100 <= n <= 10000
+          assert 1 <= len(frames) <= 3
+          summaries=[]
+          seen=set()
+          for frame in frames:
+              values=frame["values"]
+              assert isinstance(values,list) and len(values) == n*len(channels)
+              assert all(type(v) in (int,float) and math.isfinite(v) for v in values)
+              data=json.dumps(values,separators=(",",":"),allow_nan=False).encode()
+              digest=hashlib.sha256(data).hexdigest()
+              assert digest == frame["summary"]["payload_sha256"], "Frame digest mismatch"
+              assert len(data) == frame["summary"]["serialized_bytes"]
+              assert len(values) == frame["summary"]["sample_count"]
+              assert sum(v != 0 for v in values) == frame["summary"]["nonzero_samples"]
+              assert digest not in seen, "Duplicate signal frame"
+              seen.add(digest)
+              summaries.append({"sha256":digest,"sample_count":len(values),
+                                "received_utc":frame["summary"]["received_utc"]})
+          report={"verification":"PASS","capture_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+                  "compressed_bytes":p.stat().st_size,
+                  "frame_count":len(frames),"channels":len(channels),
+                  "samples_per_channel":n,"frames":summaries,
+                  "provider_source":"FinalSpark public live viewer",
+                  "origin_independently_verified":False,
+                  "biological_memory_retention_demonstrated":False,
+                  "verified_utc":datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          pathlib.Path("evidence/verification.json").write_text(json.dumps(report,indent=2)+"\n")
+          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a") as out:
+              out.write("### NeuroRAM read-only source capture\n")
+              out.write(f"Source data frames: {len(frames)}; channels: {len(channels)}; SHA256: {report['capture_sha256']}\n\n")
+              out.write("This verifies file integrity, not the biological identity of the source or memory retention.\n")
+          print("CAPTURE_VERIFIED",json.dumps({k:v for k,v in report.items() if k!="frames"}))
+          PY
+      - name: Save private run artifact, not a public repository file
+        uses: actions/upload-artifact@v4
+        with:
+          name: neuroram-public-live-signal-original
+          path: |
+            evidence/public-recording.json.gz
+            evidence/verification.json
+          if-no-files-found: error
+          retention-days: 30
